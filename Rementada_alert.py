@@ -1,6 +1,7 @@
 import requests
 import os
 import json
+import time
 
 API_KEY = os.getenv("FOOTBALL_API_KEY")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -29,17 +30,42 @@ def send_alert(message):
         "text": message,
         "parse_mode": "Markdown"
     }
-    requests.post(url, data=data)
+    try:
+        requests.post(url, data=data)
+    except Exception as e:
+        print(f"[ERROR] Failed to send Telegram message: {e}")
+
+def safe_request(url, headers=None, retries=1):
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"[ERROR] Request failed with status {response.status_code}")
+            if retries > 0:
+                print("Retrying in 5 seconds...")
+                time.sleep(5)
+                return safe_request(url, headers, retries - 1)
+            else:
+                send_alert(f"🚨 *Request failed after retries!*\nURL: `{url}`\nStatus: {response.status_code}")
+                return None
+    except Exception as e:
+        print(f"[ERROR] Exception during request: {e}")
+        if retries > 0:
+            print("Retrying in 5 seconds...")
+            time.sleep(5)
+            return safe_request(url, headers, retries - 1)
+        else:
+            send_alert(f"🚨 *Fatal request error!*\nURL: `{url}`\nError: `{e}`")
+            return None
 
 def get_live_matches():
-    url = "https://v3.football.api-sports.io/fixtures?live=all"
-    response = requests.get(url, headers=headers)
-    return response.json()["response"]
+    data = safe_request("https://v3.football.api-sports.io/fixtures?live=all", headers)
+    return data.get("response", []) if data else []
 
 def get_odds_for_fixture(fixture_id):
-    url = f"https://v3.football.api-sports.io/odds?fixture={fixture_id}"
-    response = requests.get(url, headers=headers)
-    return response.json()["response"]
+    data = safe_request(f"https://v3.football.api-sports.io/odds?fixture={fixture_id}", headers)
+    return data.get("response", []) if data else []
 
 def main():
     sent_log = load_sent_log()
@@ -50,8 +76,7 @@ def main():
         if fixture_id in sent_log:
             continue
 
-        fixture = match["fixture"]
-        status = fixture["status"]["elapsed"]
+        status = match["fixture"]["status"]["elapsed"]
         if status is None or status > 45:
             continue
 
@@ -90,7 +115,8 @@ def main():
                             save_sent_log(sent_log)
                         break
             except Exception as e:
-                print(f"Error parsing odds: {e}")
+                print(f"[ERROR] Failed to parse odds for fixture {fixture_id}: {e}")
+                send_alert(f"⚠️ *Parsing error!*\nFixture ID: `{fixture_id}`\nError: `{e}`")
 
 if __name__ == "__main__":
     main()
