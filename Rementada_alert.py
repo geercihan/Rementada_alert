@@ -53,14 +53,15 @@ def main():
 
         for match in matches:
             fixture_id = match["fixture"]["id"]
-            if fixture_id in sent_log:
-                print(f"⏭ Already alerted for fixture {fixture_id}")
-                continue
 
             fixture = match["fixture"]
             status = fixture["status"]["elapsed"]
             if status is None or status > 45:
                 print(f"⏭ Skipped fixture {fixture_id} (status: {status})")
+                continue
+
+            if fixture_id in sent_log:
+                print(f"⏭ Already alerted for fixture {fixture_id}")
                 continue
 
             goals = match["goals"]
