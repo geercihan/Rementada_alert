@@ -205,3 +205,6 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ✅ prevent this local log file from being uploaded
+sent_log.json
