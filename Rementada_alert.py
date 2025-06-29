@@ -72,9 +72,24 @@ def main():
                 leading_team = match["teams"]["home"] if home_goals > away_goals else match["teams"]["away"]
                 leading_team_name = leading_team["name"]
 
+                league = match.get("league", {})
+                league_name = league.get("name") or "Unknown League"
+                league_country = league.get("country") or "Unknown Country"
+
                 odds_data = get_odds_for_fixture(fixture_id)
                 if not odds_data:
                     print(f"⚠️ No odds available for fixture {fixture_id}")
+                    message = (
+                        f"⚠️ *No Odds Available*\n\n"
+                        f"🏟 {match['teams']['home']['name']} vs {match['teams']['away']['name']}\n"
+                        f"🏆 {league_name} - {league_country}\n"
+                        f"⏱ Minute: {status}'\n"
+                        f"📊 Score: {home_goals} - {away_goals}\n"
+                        f"❌ Odds could not be retrieved. Check manually."
+                    )
+                    send_alert(message)
+                    sent_log.append(fixture_id)
+                    save_sent_log(sent_log)
                     continue
 
                 try:
@@ -83,10 +98,6 @@ def main():
                     for odd in win_odds:
                         if odd["value"] == leading_team_name:
                             if float(odd["odd"]) >= 1.40:
-                                league = match.get("league", {})
-                                league_name = league.get("name") or "Unknown League"
-                                league_country = league.get("country") or "Unknown Country"
-
                                 message = (
                                     f"⚽️ *Rementada Alert!*\n\n"
                                     f"🏟 {match['teams']['home']['name']} vs {match['teams']['away']['name']}\n"
@@ -107,7 +118,7 @@ def main():
 
             else:
                 print(f"⏭ Fixture {fixture_id} does not match score condition")
-                
+
     except Exception as e:
         print(f"🔥 Unexpected error in main(): {e}")
         try:
