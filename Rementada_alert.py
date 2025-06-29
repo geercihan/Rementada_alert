@@ -30,93 +30,90 @@ def send_alert(message):
         "text": message,
         "parse_mode": "Markdown"
     }
-    try:
-        requests.post(url, data=data)
-    except Exception as e:
-        print(f"[ERROR] Failed to send Telegram message: {e}")
-
-def safe_request(url, headers=None, retries=1):
-    try:
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            print(f"[ERROR] Request failed with status {response.status_code}")
-            if retries > 0:
-                print("Retrying in 5 seconds...")
-                time.sleep(5)
-                return safe_request(url, headers, retries - 1)
-            else:
-                send_alert(f"🚨 *Request failed after retries!*\nURL: `{url}`\nStatus: {response.status_code}")
-                return None
-    except Exception as e:
-        print(f"[ERROR] Exception during request: {e}")
-        if retries > 0:
-            print("Retrying in 5 seconds...")
-            time.sleep(5)
-            return safe_request(url, headers, retries - 1)
-        else:
-            send_alert(f"🚨 *Fatal request error!*\nURL: `{url}`\nError: `{e}`")
-            return None
+    response = requests.post(url, data=data)
+    print(f"✅ Telegram alert sent. Status code: {response.status_code}")
 
 def get_live_matches():
-    data = safe_request("https://v3.football.api-sports.io/fixtures?live=all", headers)
-    return data.get("response", []) if data else []
+    url = "https://v3.football.api-sports.io/fixtures?live=all"
+    response = requests.get(url, headers=headers)
+    print("📥 Retrieved live matches")
+    return response.json()["response"]
 
 def get_odds_for_fixture(fixture_id):
-    data = safe_request(f"https://v3.football.api-sports.io/odds?fixture={fixture_id}", headers)
-    return data.get("response", []) if data else []
+    url = f"https://v3.football.api-sports.io/odds?fixture={fixture_id}"
+    response = requests.get(url, headers=headers)
+    print(f"📊 Retrieved odds for fixture {fixture_id}")
+    return response.json()["response"]
 
 def main():
-    sent_log = load_sent_log()
-    matches = get_live_matches()
+    try:
+        sent_log = load_sent_log()
+        matches = get_live_matches()
+        print(f"🔍 Found {len(matches)} live matches")
 
-    for match in matches:
-        fixture_id = match["fixture"]["id"]
-        if fixture_id in sent_log:
-            continue
-
-        status = match["fixture"]["status"]["elapsed"]
-        if status is None or status > 45:
-            continue
-
-        goals = match["goals"]
-        home_goals = goals["home"]
-        away_goals = goals["away"]
-
-        if (home_goals == 2 and away_goals == 0) or (home_goals == 0 and away_goals == 2):
-            leading_team = match["teams"]["home"] if home_goals > away_goals else match["teams"]["away"]
-            leading_team_name = leading_team["name"]
-
-            odds_data = get_odds_for_fixture(fixture_id)
-            if not odds_data:
+        for match in matches:
+            fixture_id = match["fixture"]["id"]
+            if fixture_id in sent_log:
+                print(f"⏭ Already alerted for fixture {fixture_id}")
                 continue
 
-            try:
-                bets = odds_data[0]["bookmakers"][0]["bets"]
-                win_odds = next((bet["values"] for bet in bets if bet["name"] == "Match Winner"), [])
-                for odd in win_odds:
-                    if odd["value"] == leading_team_name:
-                        if float(odd["odd"]) >= 1.40:
-                            league = match.get("league", {})
-                            league_name = league.get("name") or "Unknown League"
-                            league_country = league.get("country") or "Unknown Country"
+            fixture = match["fixture"]
+            status = fixture["status"]["elapsed"]
+            if status is None or status > 45:
+                print(f"⏭ Skipped fixture {fixture_id} (status: {status})")
+                continue
 
-                            message = (
-                                f"⚽️ *Rementada Alert!*\n\n"
-                                f"🏟 {match['teams']['home']['name']} vs {match['teams']['away']['name']}\n"
-                                f"🏆 {league_name} - {league_country}\n"
-                                f"⏱ Minute: {status}'\n"
-                                f"📊 Score: {home_goals} - {away_goals}\n"
-                                f"💰 {leading_team_name} Win Odds: {odd['odd']}"
-                            )
-                            send_alert(message)
-                            sent_log.append(fixture_id)
-                            save_sent_log(sent_log)
-                        break
-            except Exception as e:
-                print(f"[ERROR] Failed to parse odds for fixture {fixture_id}: {e}")
-                send_alert(f"⚠️ *Parsing error!*\nFixture ID: `{fixture_id}`\nError: `{e}`")
+            goals = match["goals"]
+            home_goals = goals["home"]
+            away_goals = goals["away"]
+
+            if (home_goals == 2 and away_goals == 0) or (home_goals == 0 and away_goals == 2):
+                leading_team = match["teams"]["home"] if home_goals > away_goals else match["teams"]["away"]
+                leading_team_name = leading_team["name"]
+
+                odds_data = get_odds_for_fixture(fixture_id)
+                if not odds_data:
+                    print(f"⚠️ No odds available for fixture {fixture_id}")
+                    continue
+
+                try:
+                    bets = odds_data[0]["bookmakers"][0]["bets"]
+                    win_odds = next((bet["values"] for bet in bets if bet["name"] == "Match Winner"), [])
+                    for odd in win_odds:
+                        if odd["value"] == leading_team_name:
+                            if float(odd["odd"]) >= 1.40:
+                                league = match.get("league", {})
+                                league_name = league.get("name") or "Unknown League"
+                                league_country = league.get("country") or "Unknown Country"
+
+                                message = (
+                                    f"⚽️ *Rementada Alert!*\n\n"
+                                    f"🏟 {match['teams']['home']['name']} vs {match['teams']['away']['name']}\n"
+                                    f"🏆 {league_name} - {league_country}\n"
+                                    f"⏱ Minute: {status}'\n"
+                                    f"📊 Score: {home_goals} - {away_goals}\n"
+                                    f"💰 {leading_team_name} Win Odds: {odd['odd']}"
+                                )
+                                send_alert(message)
+                                sent_log.append(fixture_id)
+                                save_sent_log(sent_log)
+                                print(f"🚨 Alert triggered for fixture {fixture_id}")
+                            else:
+                                print(f"⏭ Skipped: Odds too low ({odd['odd']}) for {leading_team_name}")
+                            break
+                except Exception as e:
+                    print(f"❌ Error parsing odds for fixture {fixture_id}: {e}")
+
+            else:
+                print(f"⏭ Fixture {fixture_id} does not match score condition")
+                
+    except Exception as e:
+        print(f"🔥 Unexpected error in main(): {e}")
+        try:
+            send_alert(f"❌ Error in Rementada Alert:\n`{str(e)}`")
+        except:
+            print("⚠️ Failed to send Telegram error alert")
+        time.sleep(5)
 
 if __name__ == "__main__":
     main()
